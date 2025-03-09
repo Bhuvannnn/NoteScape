@@ -17,7 +17,10 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  TextField,
+  Grid,
+  Divider
 } from '@mui/material';
 import { 
   Hub as HubIcon,
@@ -28,7 +31,8 @@ import {
   ZoomOut as ZoomOutIcon,
   Delete as DeleteIcon,
   Close as CloseIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  Save as SaveIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 // Import Network from react-vis-network-graph
@@ -46,6 +50,8 @@ const SimpleGraphView = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [nodeToDelete, setNodeToDelete] = useState(null);
   const [networkScale, setNetworkScale] = useState(1.0);
+  const [newNote, setNewNote] = useState({ title: '', content: '', tags: 'sample, note' });
+  const [createNoteOpen, setCreateNoteOpen] = useState(false);
   
   // Reference to the network instance
   const networkRef = useRef(null);
@@ -98,10 +104,8 @@ const SimpleGraphView = () => {
   const processGraphData = (data) => {
     // Format nodes for vis-network
     const nodes = data.nodes.map(node => {
-      // Create a label that includes both title and a snippet of content
-      const contentSnippet = node.content ? 
-        (node.content.length > 30 ? node.content.substring(0, 30) + '...' : node.content) : '';
-      const nodeLabel = `${node.label || node.id}\n${contentSnippet}`;
+      // Create a label that includes the title
+      const nodeLabel = node.label || node.id;
       
       return {
         id: node.id,
@@ -126,11 +130,12 @@ const SimpleGraphView = () => {
         },
         font: {
           multi: 'html',
-          size: 14,
+          size: 12,
           color: '#000000',
           face: 'Arial'
         },
-        shape: 'box',
+        shape: 'circle',
+        size: 25 + Math.min((node.content?.length || 0) / 100, 15), // Size based on content length
         shadow: true,
         // Store original data for reference
         originalData: node
@@ -209,6 +214,38 @@ const SimpleGraphView = () => {
     .catch(err => {
       console.error('Error creating sample note:', err);
       setError('Failed to create sample note: ' + (err.response?.data?.detail || err.message));
+      setLoading(false);
+    });
+  };
+
+  // Function to create a custom note
+  const createCustomNote = () => {
+    setLoading(true);
+    setError(null);
+    
+    // Parse tags from comma-separated string
+    const tags = newNote.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+    
+    // Create a note with user-provided data
+    axios.post('/api/notes/', {
+      title: newNote.title,
+      content: newNote.content,
+      tags: tags
+    })
+    .then(() => {
+      // After creating the note, analyze to generate relationships
+      return axios.post('/api/analyze');
+    })
+    .then(() => {
+      // After analysis, reload the graph
+      loadGraphData();
+      // Reset form and close dialog
+      setNewNote({ title: '', content: '', tags: 'sample, note' });
+      setCreateNoteOpen(false);
+    })
+    .catch(err => {
+      console.error('Error creating note:', err);
+      setError('Failed to create note: ' + (err.response?.data?.detail || err.message));
       setLoading(false);
     });
   };
@@ -308,10 +345,10 @@ const SimpleGraphView = () => {
   // Network options for vis-network
   const options = {
     nodes: {
-      shape: 'box',
+      shape: 'circle',
       size: 30,
       font: {
-        size: 14,
+        size: 12,
         color: '#000000',
         face: 'Arial',
         multi: 'html'
@@ -328,6 +365,15 @@ const SimpleGraphView = () => {
         hover: {
           background: '#f5f5f5',
           border: '#000000'
+        }
+      },
+      scaling: {
+        min: 10,
+        max: 30,
+        label: {
+          enabled: true,
+          min: 8,
+          max: 20
         }
       }
     },
@@ -390,6 +436,40 @@ const SimpleGraphView = () => {
       if (!networkRef.current) {
         networkRef.current = { network };
       }
+    },
+    // Scale font size based on zoom level
+    hoverNode: (params) => {
+      try {
+        if (networkRef.current && networkRef.current.network) {
+          const nodeId = params.node;
+          const node = graphData.nodes.find(n => n.id === nodeId);
+          if (node) {
+            // Temporarily increase the node size on hover
+            networkRef.current.network.body.nodes[nodeId].options.size = 40;
+            networkRef.current.network.body.nodes[nodeId].options.font.size = 16;
+            networkRef.current.network.redraw();
+          }
+        }
+      } catch (error) {
+        console.error("Error during node hover:", error);
+      }
+    },
+    blurNode: (params) => {
+      try {
+        if (networkRef.current && networkRef.current.network) {
+          const nodeId = params.node;
+          const node = graphData.nodes.find(n => n.id === nodeId);
+          if (node) {
+            // Reset the node size when not hovering
+            networkRef.current.network.body.nodes[nodeId].options.size = 
+              25 + Math.min((node.originalData.content?.length || 0) / 100, 15);
+            networkRef.current.network.body.nodes[nodeId].options.font.size = 12;
+            networkRef.current.network.redraw();
+          }
+        }
+      } catch (error) {
+        console.error("Error during node blur:", error);
+      }
     }
   };
 
@@ -420,12 +500,21 @@ const SimpleGraphView = () => {
           </Button>
           <Button 
             variant="contained" 
-            onClick={createSampleNote}
+            onClick={() => setCreateNoteOpen(true)}
             disabled={loading}
             startIcon={<AddIcon />}
             color="secondary"
+            sx={{ mr: 1 }}
           >
-            Add Sample Note
+            Add Note
+          </Button>
+          <Button 
+            variant="outlined" 
+            onClick={createSampleNote}
+            disabled={loading}
+            startIcon={<AddIcon />}
+          >
+            Add Sample
           </Button>
         </Box>
       </Box>
@@ -466,10 +555,17 @@ const SimpleGraphView = () => {
             </Button>
             <Button 
               variant="contained" 
-              onClick={createSampleNote}
+              onClick={() => setCreateNoteOpen(true)}
               color="secondary"
+              sx={{ mr: 2 }}
             >
-              Create Sample Note
+              Create Note
+            </Button>
+            <Button 
+              variant="outlined" 
+              onClick={createSampleNote}
+            >
+              Add Sample
             </Button>
           </Box>
         </Paper>
@@ -625,6 +721,66 @@ const SimpleGraphView = () => {
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={deleteNote} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create note dialog */}
+      <Dialog
+        open={createNoteOpen}
+        onClose={() => setCreateNoteOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Create New Note</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <TextField
+                label="Note Title"
+                variant="outlined"
+                fullWidth
+                value={newNote.title}
+                onChange={(e) => setNewNote({...newNote, title: e.target.value})}
+                placeholder="Enter a title for your note"
+                required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Note Content"
+                variant="outlined"
+                fullWidth
+                multiline
+                rows={6}
+                value={newNote.content}
+                onChange={(e) => setNewNote({...newNote, content: e.target.value})}
+                placeholder="Enter the content of your note"
+                required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Tags (comma-separated)"
+                variant="outlined"
+                fullWidth
+                value={newNote.tags}
+                onChange={(e) => setNewNote({...newNote, tags: e.target.value})}
+                placeholder="Enter tags separated by commas (e.g., sample, note, important)"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateNoteOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={createCustomNote} 
+            color="primary" 
+            variant="contained"
+            startIcon={<SaveIcon />}
+            disabled={!newNote.title || !newNote.content}
+          >
+            Create Note
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>

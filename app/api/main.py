@@ -125,28 +125,22 @@ async def delete_note(note_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/import/text")
-async def import_text_notes(file: UploadFile = File(...)):
+async def import_text_notes(file: UploadFile = File(...), title: str = Form(None)):
     """Import notes from a text file"""
     try:
         content = await file.read()
         content_text = content.decode("utf-8")
         
-        # Simple parsing - each line is a separate note
-        lines = content_text.split("\n")
-        notes = []
+        # Create a single note with the file content
+        note = Note(
+            title=title or file.filename,
+            content=content_text,
+            source=file.filename,
+            created_at=datetime.now().isoformat()
+        )
+        created_note = await create_note(note)
         
-        for i, line in enumerate(lines):
-            if line.strip():
-                note = Note(
-                    title=f"Note {i+1}",
-                    content=line.strip(),
-                    source=file.filename,
-                    created_at=datetime.now().isoformat()
-                )
-                created_note = await create_note(note)
-                notes.append(created_note)
-        
-        return {"message": f"Imported {len(notes)} notes from {file.filename}"}
+        return {"message": f"Imported note from {file.filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -16,7 +16,8 @@ import {
   FormControlLabel,
   Radio,
   Alert,
-  Container
+  Container,
+  Grid
 } from '@mui/material';
 import {
   Upload as UploadIcon,
@@ -30,6 +31,7 @@ const SimpleImportView = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [sourceType, setSourceType] = useState('file');
   const [content, setContent] = useState('');
+  const [noteTitle, setNoteTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null);
@@ -41,8 +43,18 @@ const SimpleImportView = () => {
       return;
     }
     
+    if (activeStep === 1 && sourceType === 'direct' && !noteTitle.trim()) {
+      setError('Please enter a title for your note');
+      return;
+    }
+    
     if (activeStep === 1 && sourceType === 'file' && !selectedFile) {
       setError('Please select a file to import');
+      return;
+    }
+    
+    if (activeStep === 1 && sourceType === 'file' && !noteTitle.trim()) {
+      setError('Please enter a title for your note');
       return;
     }
     
@@ -77,41 +89,50 @@ const SimpleImportView = () => {
     setError(null);
     
     if (sourceType === 'file' && selectedFile) {
-      // Create a FormData object to send the file
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      
-      // Send the file to the API
-      axios.post('/api/import/text', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      })
-      .then(response => {
-        // After importing, analyze to generate relationships
-        return axios.post('/api/analyze');
-      })
-      .then(() => {
-        // Get the graph data to see how many notes and relationships were created
-        return axios.get('/api/graph');
-      })
-      .then(response => {
-        setResults({
-          importedCount: response.data.nodes.length,
-          relationships: response.data.links.length
+      // Read the file content
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const fileContent = e.target.result;
+        
+        // Create a note with the file content
+        axios.post('/api/notes/', {
+          title: noteTitle || selectedFile.name,
+          content: fileContent,
+          tags: []
+        })
+        .then(() => {
+          // After creating the note, analyze to generate relationships
+          return axios.post('/api/analyze');
+        })
+        .then(() => {
+          // Get the graph data to see how many notes and relationships were created
+          return axios.get('/api/graph');
+        })
+        .then(response => {
+          setResults({
+            importedCount: response.data.nodes.length,
+            relationships: response.data.links.length
+          });
+          setLoading(false);
+          setActiveStep(3); // Move to results step
+        })
+        .catch(err => {
+          console.error('Error processing file:', err);
+          setError('Error processing file: ' + (err.response?.data?.detail || err.message));
+          setLoading(false);
         });
+      };
+      
+      reader.onerror = () => {
+        setError('Error reading file');
         setLoading(false);
-        setActiveStep(3); // Move to results step
-      })
-      .catch(err => {
-        console.error('Error processing file:', err);
-        setError('Error processing file: ' + (err.response?.data?.detail || err.message));
-        setLoading(false);
-      });
+      };
+      
+      reader.readAsText(selectedFile);
     } else if (sourceType === 'direct' && content) {
       // Create a note directly from the content
       axios.post('/api/notes/', {
-        title: "Imported Note",
+        title: noteTitle || "Imported Note",
         content: content,
         tags: []
       })
@@ -179,39 +200,71 @@ const SimpleImportView = () => {
                 <Typography variant="h6" gutterBottom>
                   Upload Files
                 </Typography>
-                <Button
-                  variant="contained"
-                  component="label"
-                  startIcon={<UploadIcon />}
-                >
-                  Select File
-                  <input
-                    type="file"
-                    hidden
-                    onChange={handleFileChange}
-                    accept=".txt,.md,.csv,.json,.pdf,.html"
-                  />
-                </Button>
-                {selectedFile && (
-                  <Typography variant="body2" sx={{ mt: 2 }}>
-                    Selected file: {selectedFile.name}
-                  </Typography>
-                )}
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <TextField
+                      label="Note Title"
+                      fullWidth
+                      value={noteTitle}
+                      onChange={(e) => setNoteTitle(e.target.value)}
+                      variant="outlined"
+                      placeholder="Enter a title for your note"
+                      required
+                      helperText="This will be used as the node name in the graph"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button
+                      variant="contained"
+                      component="label"
+                      startIcon={<UploadIcon />}
+                    >
+                      Select File
+                      <input
+                        type="file"
+                        hidden
+                        onChange={handleFileChange}
+                        accept=".txt,.md,.csv,.json,.pdf,.html"
+                      />
+                    </Button>
+                    {selectedFile && (
+                      <Typography variant="body2" sx={{ mt: 2 }}>
+                        Selected file: {selectedFile.name}
+                      </Typography>
+                    )}
+                  </Grid>
+                </Grid>
               </Box>
             ) : (
               <Box>
                 <Typography variant="h6" gutterBottom>
                   Enter Content
                 </Typography>
-                <TextField
-                  label="Paste your notes here"
-                  multiline
-                  rows={10}
-                  fullWidth
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  variant="outlined"
-                />
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <TextField
+                      label="Note Title"
+                      fullWidth
+                      value={noteTitle}
+                      onChange={(e) => setNoteTitle(e.target.value)}
+                      variant="outlined"
+                      placeholder="Enter a title for your note"
+                      required
+                      helperText="This will be used as the node name in the graph"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      label="Paste your notes here"
+                      multiline
+                      rows={10}
+                      fullWidth
+                      value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      variant="outlined"
+                    />
+                  </Grid>
+                </Grid>
               </Box>
             )}
           </Box>
@@ -256,6 +309,7 @@ const SimpleImportView = () => {
                     onClick={() => {
                       setActiveStep(0);
                       setContent('');
+                      setNoteTitle('');
                       setResults(null);
                       setError(null);
                       setSelectedFile(null);
