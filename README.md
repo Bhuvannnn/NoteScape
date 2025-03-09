@@ -546,7 +546,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Your Name - [bhuvanshah288@gmail.com](mailto:your.email@example.com)
 
-Project Link: [https://github.com/Bhuvannnn/NoteScape]([https://github.com/Bhuvannnn/NoteScape])
+Project Link: [https://github.com/Bhuvannnn/notescape](https://github.com/Bhuvannnn/notescape)
 
 ---
 
