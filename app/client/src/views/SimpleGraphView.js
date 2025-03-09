@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   Box, 
@@ -7,25 +7,64 @@ import {
   Button, 
   Alert, 
   CircularProgress,
-  Container
+  Container,
+  Tooltip,
+  IconButton,
+  Card,
+  CardContent,
+  CardActions,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import { 
   Hub as HubIcon,
   Refresh as RefreshIcon,
   Home as HomeIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
+  Delete as DeleteIcon,
+  Close as CloseIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+// Import Network from react-vis-network-graph
+import Network from 'react-vis-network-graph';
 
 const SimpleGraphView = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [apiError, setApiError] = useState(false);
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
+  const [graphWidth, setGraphWidth] = useState(800);
+  const [graphHeight] = useState(600); // Fixed height
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [nodeToDelete, setNodeToDelete] = useState(null);
+  const [networkScale, setNetworkScale] = useState(1.0);
+  
+  // Reference to the network instance
+  const networkRef = useRef(null);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setGraphWidth(Math.min(window.innerWidth - 400, 800)); // Leave space for details panel
+    };
+    
+    handleResize(); // Set initial size
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Load graph data on component mount
   useEffect(() => {
     loadGraphData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Function to load graph data from the API
@@ -33,10 +72,14 @@ const SimpleGraphView = () => {
     setLoading(true);
     setError(null);
     setApiError(false);
+    setSelectedNode(null);
     
     axios.get('/api/graph')
       .then(response => {
-        setGraphData(response.data);
+        console.log('Graph data received:', response.data);
+        // Process the data for the graph
+        const processedData = processGraphData(response.data);
+        setGraphData(processedData);
         setLoading(false);
       })
       .catch(err => {
@@ -49,6 +92,63 @@ const SimpleGraphView = () => {
         }
         setLoading(false);
       });
+  };
+
+  // Process graph data to make it compatible with vis-network
+  const processGraphData = (data) => {
+    // Format nodes for vis-network
+    const nodes = data.nodes.map(node => ({
+      id: node.id,
+      label: node.label || node.id,
+      color: getNodeColor(node),
+      size: 25 + (node.tags?.length || 0) * 5, // Node size based on number of tags
+      title: `${node.label || node.id}\n${node.content?.substring(0, 50)}${node.content?.length > 50 ? '...' : ''}`,
+      // Store original data for reference
+      originalData: node
+    }));
+
+    // Format edges (links) for vis-network
+    const edges = data.links.map((link, index) => {
+      // Convert source and target to strings if they're not already
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      
+      return {
+        id: `e${index}`,
+        from: sourceId,
+        to: targetId,
+        color: {
+          color: getLinkColor(link.value || 0.5),
+          highlight: '#FF0000'
+        },
+        width: 1 + (link.value || 0.5) * 5,
+        // Store original data for reference
+        originalData: link
+      };
+    });
+
+    return { nodes, edges };
+  };
+
+  // Get color for node based on its properties
+  const getNodeColor = (node) => {
+    // Color based on tags if available
+    if (node.tags && node.tags.length > 0) {
+      if (node.tags.includes('sample')) return '#2196f3'; // Blue for sample notes
+      if (node.tags.includes('important')) return '#f44336'; // Red for important notes
+      if (node.tags.includes('idea')) return '#4caf50'; // Green for ideas
+      if (node.tags.includes('question')) return '#ff9800'; // Orange for questions
+    }
+    
+    // Default color
+    return '#9c27b0'; // Purple for other notes
+  };
+
+  // Get color for link based on relationship strength
+  const getLinkColor = (strength) => {
+    // Color gradient from light to dark based on strength
+    const opacity = 0.2 + (strength * 0.8);
+    return `rgba(33, 150, 243, ${opacity})`;
   };
 
   // Function to create a sample note
@@ -75,6 +175,152 @@ const SimpleGraphView = () => {
       setError('Failed to create sample note: ' + (err.response?.data?.detail || err.message));
       setLoading(false);
     });
+  };
+
+  // Handle node click
+  const handleNodeClick = useCallback((params) => {
+    if (params.nodes && params.nodes.length > 0) {
+      const nodeId = params.nodes[0];
+      const node = graphData.nodes.find(n => n.id === nodeId);
+      if (node) {
+        setSelectedNode(node.originalData);
+      }
+    }
+  }, [graphData.nodes]);
+
+  // Handle node right-click (for delete option)
+  const handleNodeRightClick = useCallback((params) => {
+    if (params.nodes && params.nodes.length > 0) {
+      const nodeId = params.nodes[0];
+      const node = graphData.nodes.find(n => n.id === nodeId);
+      if (node) {
+        setNodeToDelete(node.originalData);
+        setDeleteDialogOpen(true);
+      }
+    }
+  }, [graphData.nodes]);
+
+  // Delete a note
+  const deleteNote = () => {
+    if (!nodeToDelete) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    axios.delete(`/api/notes/${nodeToDelete.id}`)
+      .then(() => {
+        // After deleting, reload the graph
+        loadGraphData();
+        setDeleteDialogOpen(false);
+        setNodeToDelete(null);
+        if (selectedNode && selectedNode.id === nodeToDelete.id) {
+          setSelectedNode(null);
+        }
+      })
+      .catch(err => {
+        console.error('Error deleting note:', err);
+        setError('Failed to delete note: ' + (err.response?.data?.detail || err.message));
+        setLoading(false);
+        setDeleteDialogOpen(false);
+      });
+  };
+
+  // Zoom in on the graph
+  const zoomIn = () => {
+    try {
+      if (networkRef.current && networkRef.current.network) {
+        const newScale = networkScale * 1.2;
+        networkRef.current.network.moveTo({
+          scale: newScale
+        });
+        setNetworkScale(newScale);
+      }
+    } catch (error) {
+      console.error("Error during zoom in:", error);
+    }
+  };
+
+  // Zoom out on the graph
+  const zoomOut = () => {
+    try {
+      if (networkRef.current && networkRef.current.network) {
+        const newScale = networkScale / 1.2;
+        networkRef.current.network.moveTo({
+          scale: newScale
+        });
+        setNetworkScale(newScale);
+      }
+    } catch (error) {
+      console.error("Error during zoom out:", error);
+    }
+  };
+
+  // Focus on a specific node
+  const focusOnNode = (nodeId) => {
+    try {
+      if (networkRef.current && networkRef.current.network) {
+        networkRef.current.network.focus(nodeId, {
+          scale: 1.5,
+          animation: true
+        });
+      }
+    } catch (error) {
+      console.error("Error focusing on node:", error);
+    }
+  };
+
+  // Network options for vis-network
+  const options = {
+    nodes: {
+      shape: 'dot',
+      size: 30,
+      font: {
+        size: 14,
+        color: '#000000'
+      },
+      borderWidth: 2,
+      shadow: true
+    },
+    edges: {
+      width: 2,
+      shadow: true,
+      smooth: {
+        type: 'continuous'
+      }
+    },
+    physics: {
+      stabilization: {
+        enabled: true,
+        iterations: 1000
+      },
+      barnesHut: {
+        gravitationalConstant: -2000,
+        centralGravity: 0.3,
+        springLength: 150,
+        springConstant: 0.04,
+        damping: 0.09
+      }
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 200,
+      zoomView: true,
+      dragView: true
+    },
+    height: `${graphHeight}px`,
+    width: `${graphWidth}px`
+  };
+
+  // Network events
+  const events = {
+    click: handleNodeClick,
+    oncontext: handleNodeRightClick,
+    // Store network reference when initialized
+    afterDrawing: (network) => {
+      if (!networkRef.current) {
+        networkRef.current = { network };
+      }
+    }
   };
 
   return (
@@ -158,36 +404,159 @@ const SimpleGraphView = () => {
           </Box>
         </Paper>
       ) : (
-        <Paper sx={{ p: 4 }}>
-          <Typography variant="h5" gutterBottom>Graph Data</Typography>
-          <Typography variant="body1" paragraph>
-            Found {graphData.nodes.length} nodes and {graphData.links.length} connections.
-          </Typography>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          {/* Graph visualization */}
+          <Paper sx={{ p: 2, position: 'relative', flexGrow: 1 }}>
+            <Box sx={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 1 }}>
+              <Tooltip title="Zoom In">
+                <IconButton onClick={zoomIn} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.8)' }}>
+                  <ZoomInIcon />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Zoom Out">
+                <IconButton onClick={zoomOut} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.8)' }}>
+                  <ZoomOutIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            
+            <Typography variant="h5" gutterBottom>
+              Graph Visualization
+            </Typography>
+            <Typography variant="body2" paragraph>
+              Found {graphData.nodes.length} nodes and {graphData.edges.length} connections.
+            </Typography>
+            
+            <Box sx={{ height: graphHeight, width: graphWidth, margin: '0 auto', position: 'relative' }}>
+              {graphData.nodes.length > 0 && (
+                <div style={{ height: graphHeight, width: graphWidth }}>
+                  <Network
+                    graph={graphData}
+                    options={options}
+                    events={events}
+                    getNetwork={network => {
+                      // Store network reference
+                      if (!networkRef.current) {
+                        networkRef.current = { network };
+                      }
+                    }}
+                  />
+                </div>
+              )}
+            </Box>
+          </Paper>
           
-          <Typography variant="h6" gutterBottom>Nodes:</Typography>
-          <Box component="ul" sx={{ mb: 3, maxHeight: '200px', overflow: 'auto' }}>
-            {graphData.nodes.map((node, index) => (
-              <li key={index}>
-                <strong>{node.label || node.id}</strong>
-                {node.tags && node.tags.length > 0 && (
-                  <span> - Tags: {node.tags.join(', ')}</span>
-                )}
-              </li>
-            ))}
-          </Box>
-          
-          <Typography variant="h6" gutterBottom>Connections:</Typography>
-          <Box component="ul" sx={{ maxHeight: '200px', overflow: 'auto' }}>
-            {graphData.links.map((link, index) => (
-              <li key={index}>
-                {link.source} → {link.target} 
-                {link.type && <span> ({link.type})</span>}
-                {link.value && <span> - Strength: {Math.round(link.value * 100)}%</span>}
-              </li>
-            ))}
-          </Box>
-        </Paper>
+          {/* Node details panel */}
+          <Paper sx={{ p: 2, width: '300px', height: graphHeight, overflow: 'auto' }}>
+            {selectedNode ? (
+              <Card variant="outlined">
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                    <Typography variant="h6" component="h2" gutterBottom>
+                      {selectedNode.label || selectedNode.id}
+                    </Typography>
+                    <IconButton 
+                      size="small" 
+                      onClick={() => setSelectedNode(null)}
+                      aria-label="close"
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                  
+                  {selectedNode.tags && selectedNode.tags.length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle2" gutterBottom>Tags:</Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {selectedNode.tags.map((tag, index) => (
+                          <Chip key={index} label={tag} size="small" />
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                  
+                  {selectedNode.content && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle2" gutterBottom>Content:</Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {selectedNode.content}
+                      </Typography>
+                    </Box>
+                  )}
+                  
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Connections:</Typography>
+                    <Typography variant="body2">
+                      {graphData.edges.filter(edge => 
+                        edge.from === selectedNode.id || edge.to === selectedNode.id
+                      ).length} connections
+                    </Typography>
+                  </Box>
+                </CardContent>
+                <CardActions>
+                  <Button 
+                    size="small" 
+                    startIcon={<DeleteIcon />}
+                    color="error"
+                    onClick={() => {
+                      setNodeToDelete(selectedNode);
+                      setDeleteDialogOpen(true);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                  <Button 
+                    size="small" 
+                    startIcon={<InfoIcon />}
+                    onClick={() => focusOnNode(selectedNode.id)}
+                  >
+                    Focus
+                  </Button>
+                </CardActions>
+              </Card>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <InfoIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 2 }} />
+                <Typography variant="body1" color="text.secondary">
+                  Click on a node to view details
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Right-click to delete a node
+                </Typography>
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle1">
+                    Graph Statistics
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    Nodes: {graphData.nodes.length}
+                  </Typography>
+                  <Typography variant="body2">
+                    Connections: {graphData.edges.length}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </Paper>
+        </Box>
       )}
+      
+      {/* Delete confirmation dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+      >
+        <DialogTitle>Delete Note</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete "{nodeToDelete?.label || nodeToDelete?.id}"?
+            This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={deleteNote} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

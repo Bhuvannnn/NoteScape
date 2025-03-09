@@ -87,6 +87,42 @@ class Neo4jConnector:
         record = result.single()
         return record["id"]
     
+    def delete_note(self, note_id: str) -> bool:
+        """
+        Delete a note and all its relationships
+        
+        Args:
+            note_id: Note ID
+            
+        Returns:
+            True if the note was deleted, False if not found
+        """
+        with self.driver.session() as session:
+            result = session.execute_write(self._delete_note_tx, note_id)
+            return result
+    
+    def _delete_note_tx(self, tx, note_id: str) -> bool:
+        """Transaction function for deleting a note"""
+        # First, delete all relationships involving this note
+        delete_relationships_query = """
+        MATCH (n:Note {id: $id})-[r]-()
+        DELETE r
+        """
+        tx.run(delete_relationships_query, id=note_id)
+        
+        # Then, delete the note itself
+        delete_note_query = """
+        MATCH (n:Note {id: $id})
+        DELETE n
+        RETURN count(n) as deleted_count
+        """
+        
+        result = tx.run(delete_note_query, id=note_id)
+        record = result.single()
+        
+        # Return True if a note was deleted, False otherwise
+        return record["deleted_count"] > 0
+    
     def get_note(self, note_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a note by ID

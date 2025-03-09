@@ -111,6 +111,19 @@ async def get_note(note_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/notes/{note_id}")
+async def delete_note(note_id: str):
+    """Delete a note by ID"""
+    try:
+        success = neo4j_connector.delete_note(note_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Note not found")
+        return {"message": f"Note {note_id} deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/import/text")
 async def import_text_notes(file: UploadFile = File(...)):
     """Import notes from a text file"""
