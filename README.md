@@ -1,6 +1,6 @@
 # NoteScape
 
-![NoteScape Logo](https://via.placeholder.com/150x150?text=NoteScape)
+![NoteScape Logo Still in the works](https://via.placeholder.com/150x150?text=NoteScape)
 
 ## 📚 Knowledge Graph Visualization System
 
