@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 import sys
 import uuid
 from datetime import datetime
+import re
+from collections import Counter
 
 # Add the parent directory to the path so we can import the db module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -70,7 +72,7 @@ async def create_note(note: Note):
         # Generate ID if not provided
         if not note.id:
             note.id = f"note_{uuid.uuid4()}"
-        
+            
         # Set timestamps if not provided
         current_time = datetime.now().isoformat()
         if not note.created_at:
@@ -78,14 +80,29 @@ async def create_note(note: Note):
         if not note.updated_at:
             note.updated_at = current_time
             
-        # Convert to dictionary for the connector
+        # Create the note in Neo4j
         note_dict = note.dict()
-        
-        # Create note in Neo4j
         note_id = neo4j_connector.create_note(note_dict)
-        note.id = note_id
         
-        return note
+        # Try to store in vector database if available, but don't fail if it's not
+        try:
+            # Import vector DB connector
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from db.vector_db import get_vector_db
+            
+            # Get vector DB connector
+            vector_db = get_vector_db()
+            
+            # Store note in vector DB
+            vector_db.store_note(note_dict)
+        except Exception as e:
+            # Log error but continue - we can still use the note without vector embeddings
+            print(f"Warning: Could not store note in vector database: {e}")
+            print("Note was created in Neo4j but may not be available for semantic search.")
+        
+        return {"id": note_id, "message": "Note created successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -151,28 +168,84 @@ async def analyze_notes():
         # Get all notes
         notes = neo4j_connector.get_all_notes()
         
-        # Simple relationship creation - connect notes with similar words
+        if not notes:
+            return {"message": "No notes found to analyze"}
+        
+        # Enhanced keyword-based relationship extraction
+        import re
+        from collections import Counter
+        
+        # Extract keywords from each note
+        note_keywords = {}
+        for note in notes:
+            # Convert to lowercase and remove punctuation
+            text = re.sub(r'[^\w\s]', '', note["content"].lower())
+            
+            # Split into words
+            words = text.split()
+            
+            # Remove common stop words
+            stop_words = {
+                'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
+                'being', 'to', 'of', 'for', 'with', 'by', 'about', 'against', 'between', 'into',
+                'through', 'during', 'before', 'after', 'above', 'below', 'from', 'up', 'down',
+                'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once',
+                'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each',
+                'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
+                'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just',
+                'don', 'should', 'now', 'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves',
+                'you', 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself',
+                'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their',
+                'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 'these',
+                'those', 'am', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
+                'would', 'should', 'could', 'ought', 'i\'m', 'you\'re', 'he\'s', 'she\'s', 'it\'s',
+                'we\'re', 'they\'re', 'i\'ve', 'you\'ve', 'we\'ve', 'they\'ve', 'i\'d', 'you\'d',
+                'he\'d', 'she\'d', 'we\'d', 'they\'d', 'i\'ll', 'you\'ll', 'he\'ll', 'she\'ll',
+                'we\'ll', 'they\'ll', 'isn\'t', 'aren\'t', 'wasn\'t', 'weren\'t', 'hasn\'t',
+                'haven\'t', 'hadn\'t', 'doesn\'t', 'don\'t', 'didn\'t', 'won\'t', 'wouldn\'t',
+                'shan\'t', 'shouldn\'t', 'can\'t', 'cannot', 'couldn\'t', 'mustn\'t', 'let\'s',
+                'that\'s', 'who\'s', 'what\'s', 'here\'s', 'there\'s', 'when\'s', 'where\'s',
+                'why\'s', 'how\'s'
+            }
+            
+            # Filter out stop words and words with less than 3 characters
+            filtered_words = [word for word in words if word not in stop_words and len(word) > 2]
+            
+            # Count word frequencies
+            word_counts = Counter(filtered_words)
+            
+            # Get the top N keywords
+            top_keywords = [word for word, count in word_counts.most_common(15)]
+            note_keywords[note["id"]] = top_keywords
+        
+        # Find relationships based on shared keywords
+        relationship_count = 0
         for i, note1 in enumerate(notes):
             for j, note2 in enumerate(notes):
-                if i != j:  # Don't connect a note to itself
-                    # Simple similarity - count common words
-                    words1 = set(note1["content"].lower().split())
-                    words2 = set(note2["content"].lower().split())
-                    common_words = words1.intersection(words2)
+                if i < j:  # Only process each pair once
+                    # Get keywords for both notes
+                    keywords1 = set(note_keywords[note1["id"]])
+                    keywords2 = set(note_keywords[note2["id"]])
                     
-                    if len(common_words) > 0:
-                        # Create relationship
-                        strength = len(common_words) / max(len(words1), len(words2))
+                    # Find shared keywords
+                    shared_keywords = keywords1.intersection(keywords2)
+                    
+                    # Create relationship if there are enough shared keywords
+                    if len(shared_keywords) >= 2:  # At least 2 shared important keywords
+                        # Calculate strength based on number of shared keywords
+                        strength = min(0.9, len(shared_keywords) / 10)  # Cap at 0.9
+                        
                         relationship = {
                             "source_id": note1["id"],
                             "target_id": note2["id"],
-                            "relationship_type": "similar",
+                            "relationship_type": "shared_topics",
                             "strength": strength,
-                            "metadata": {"common_words": list(common_words)}
+                            "metadata": {"shared_keywords": list(shared_keywords)}
                         }
                         neo4j_connector.create_relationship(relationship)
+                        relationship_count += 1
         
-        return {"message": "Notes analyzed successfully"}
+        return {"message": f"Notes analyzed successfully. Created {relationship_count} relationships."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
