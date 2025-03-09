@@ -142,6 +142,14 @@ function Sidebar({ open, selectedNote, setSelectedNote }) {
               <ListItemIcon>
                 <HubIcon fontSize="small" />
               </ListItemIcon>
+              <ListItemText primary="Home" />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton component={RouterLink} to="/graph">
+              <ListItemIcon>
+                <HubIcon fontSize="small" />
+              </ListItemIcon>
               <ListItemText primary="Graph View" />
             </ListItemButton>
           </ListItem>

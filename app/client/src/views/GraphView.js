@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ForceGraph2D from 'react-force-graph';
+import { ForceGraph2D } from 'react-force-graph';
 import { Box, Paper, Typography, CircularProgress, Alert, Button } from '@mui/material';
 import axios from 'axios';
+import ApiErrorFallback from '../components/ApiErrorFallback';
 
 const GraphView = ({ setSelectedNote }) => {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [apiError, setApiError] = useState(false);
   const graphRef = useRef();
   const navigate = useNavigate();
 
@@ -16,18 +18,53 @@ const GraphView = ({ setSelectedNote }) => {
     const fetchGraphData = async () => {
       try {
         setLoading(true);
+        setApiError(false);
         const response = await axios.get('/api/graph');
         setGraphData(response.data);
         setLoading(false);
       } catch (err) {
-        setError('Failed to load graph data. Please try again later.');
-        setLoading(false);
         console.error('Error fetching graph data:', err);
+        setLoading(false);
+        
+        if (err.code === 'ERR_NETWORK') {
+          setApiError(true);
+          setError('Cannot connect to the backend server. Please make sure it is running.');
+        } else {
+          setError('Failed to load graph data. Please try again later.');
+        }
       }
     };
 
     fetchGraphData();
   }, []);
+
+  // Reset API error and try again
+  const retryFetch = () => {
+    setApiError(false);
+    setError(null);
+    setLoading(true);
+    
+    // Re-fetch data
+    const fetchGraphData = async () => {
+      try {
+        const response = await axios.get('/api/graph');
+        setGraphData(response.data);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error fetching graph data:', err);
+        setLoading(false);
+        
+        if (err.code === 'ERR_NETWORK') {
+          setApiError(true);
+          setError('Cannot connect to the backend server. Please make sure it is running.');
+        } else {
+          setError('Failed to load graph data. Please try again later.');
+        }
+      }
+    };
+
+    fetchGraphData();
+  };
 
   // Handle node click
   const handleNodeClick = (node) => {
@@ -82,6 +119,11 @@ const GraphView = ({ setSelectedNote }) => {
     }
   };
 
+  // If there's an API connection error, show the API error fallback
+  if (apiError) {
+    return <ApiErrorFallback error={error} resetErrorBoundary={retryFetch} />;
+  }
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -102,7 +144,15 @@ const GraphView = ({ setSelectedNote }) => {
           <CircularProgress />
         </Box>
       ) : error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert 
+          severity="error" 
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={retryFetch}>
+              Retry
+            </Button>
+          }
+        >
           {error}
         </Alert>
       ) : graphData.nodes.length === 0 ? (

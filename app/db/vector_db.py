@@ -80,12 +80,12 @@ class PineconeConnector(VectorDBConnector):
         
         # Initialize Pinecone
         api_key = os.getenv("PINECONE_API_KEY")
-        environment = os.getenv("PINECONE_ENVIRONMENT")
         
-        if not api_key or not environment:
-            raise ValueError("Pinecone API key and environment must be set")
+        if not api_key:
+            raise ValueError("Pinecone API key must be set")
             
-        pinecone.init(api_key=api_key, environment=environment)
+        # As of January 2024, environment parameter is no longer needed
+        pinecone.init(api_key=api_key)
         
         # Create or get index
         index_name = "notescape"
@@ -344,7 +344,7 @@ def get_vector_db_connector() -> VectorDBConnector:
         Vector database connector instance
     """
     # Check if Pinecone credentials are available
-    if os.getenv("PINECONE_API_KEY") and os.getenv("PINECONE_ENVIRONMENT"):
+    if os.getenv("PINECONE_API_KEY"):
         try:
             return PineconeConnector()
         except Exception as e:

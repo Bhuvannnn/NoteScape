@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -42,24 +42,8 @@ const NoteView = ({ selectedNote, setSelectedNote }) => {
   const [editedNote, setEditedNote] = useState(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  // Fetch the note if not provided via props
-  useEffect(() => {
-    if (selectedNote && selectedNote.id === noteId) {
-      setNote(selectedNote);
-      setLoading(false);
-    } else {
-      fetchNote(noteId);
-    }
-  }, [noteId, selectedNote]);
-
-  // Fetch related notes whenever the note changes
-  useEffect(() => {
-    if (note) {
-      fetchRelatedNotes(note.id);
-    }
-  }, [note]);
-
-  const fetchNote = async (id) => {
+  // Use useCallback to memoize the fetchNote function
+  const fetchNote = useCallback(async (id) => {
     try {
       setLoading(true);
       const response = await axios.get(`/api/notes/${id}`);
@@ -71,16 +55,34 @@ const NoteView = ({ selectedNote, setSelectedNote }) => {
       setError('Failed to load note. It may have been deleted or not exist.');
       setLoading(false);
     }
-  };
+  }, [setSelectedNote]);
 
-  const fetchRelatedNotes = async (id) => {
+  // Fetch the note if not provided via props
+  useEffect(() => {
+    if (selectedNote && selectedNote.id === noteId) {
+      setNote(selectedNote);
+      setLoading(false);
+    } else {
+      fetchNote(noteId);
+    }
+  }, [noteId, selectedNote, fetchNote]);
+  
+  // Use useCallback for fetchRelatedNotes as well
+  const fetchRelatedNotes = useCallback(async (id) => {
     try {
       const response = await axios.get(`/api/notes/${id}/related`);
       setRelatedNotes(response.data);
     } catch (err) {
       console.error('Error fetching related notes:', err);
     }
-  };
+  }, []);
+
+  // Fetch related notes whenever the note changes
+  useEffect(() => {
+    if (note) {
+      fetchRelatedNotes(note.id);
+    }
+  }, [note, fetchRelatedNotes]);
 
   const handleEdit = () => {
     setEditedNote({

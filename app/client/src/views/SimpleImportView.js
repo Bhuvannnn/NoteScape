@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -16,30 +16,24 @@ import {
   FormControlLabel,
   Radio,
   Alert,
-  Card,
-  CardContent,
-  Stack,
-  Chip,
+  Container
 } from '@mui/material';
 import {
-  FileUpload as FileUploadIcon,
-  DataObject as DataObjectIcon,
-  AutoGraph as AutoGraphIcon,
-  Hub as HubIcon,
+  Upload as UploadIcon,
+  Home as HomeIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 
 const steps = ['Select Source', 'Upload Files', 'Process Notes', 'View Results'];
 
-const ImportView = () => {
-  const navigate = useNavigate();
+const SimpleImportView = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [sourceType, setSourceType] = useState('file');
-  const [files, setFiles] = useState([]);
+  const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null);
-  const [content, setContent] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const handleNext = () => {
     if (activeStep === 1 && sourceType === 'direct' && !content.trim()) {
@@ -47,17 +41,17 @@ const ImportView = () => {
       return;
     }
     
-    if (activeStep === 1 && sourceType === 'file' && files.length === 0) {
-      setError('Please select at least one file to import');
+    if (activeStep === 1 && sourceType === 'file' && !selectedFile) {
+      setError('Please select a file to import');
       return;
     }
     
     setError(null);
     setActiveStep((prevActiveStep) => prevActiveStep + 1);
     
-    // If moving to process step, start processing
+    // If moving to process step, process the content
     if (activeStep === 1) {
-      processFiles();
+      processContent();
     }
   };
 
@@ -66,59 +60,84 @@ const ImportView = () => {
     setError(null);
   };
 
-  const handleFileChange = (event) => {
-    setFiles(Array.from(event.target.files));
-    setError(null);
-  };
-
   const handleSourceTypeChange = (event) => {
     setSourceType(event.target.value);
     setError(null);
-    // Reset files or content when changing source type
-    if (event.target.value === 'file') {
-      setContent('');
-    } else {
-      setFiles([]);
+    setSelectedFile(null);
+  };
+
+  const handleFileChange = (event) => {
+    if (event.target.files && event.target.files.length > 0) {
+      setSelectedFile(event.target.files[0]);
     }
   };
 
-  const processFiles = async () => {
+  const processContent = () => {
     setLoading(true);
     setError(null);
     
-    try {
-      if (sourceType === 'file') {
-        // Create a FormData object to send files
-        const formData = new FormData();
-        files.forEach(file => {
-          formData.append('files', file);
-        });
-        
-        // Upload files
-        const response = await axios.post('/api/import/text', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-        
-        setResults(response.data);
-      } else {
-        // Direct content
-        const response = await axios.post('/api/import/direct', {
-          content: content,
-        });
-        
-        setResults(response.data);
-      }
+    if (sourceType === 'file' && selectedFile) {
+      // Create a FormData object to send the file
+      const formData = new FormData();
+      formData.append('file', selectedFile);
       
-      // Move to the results step
-      setTimeout(() => {
+      // Send the file to the API
+      axios.post('/api/import/text', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      .then(response => {
+        // After importing, analyze to generate relationships
+        return axios.post('/api/analyze');
+      })
+      .then(() => {
+        // Get the graph data to see how many notes and relationships were created
+        return axios.get('/api/graph');
+      })
+      .then(response => {
+        setResults({
+          importedCount: response.data.nodes.length,
+          relationships: response.data.links.length
+        });
         setLoading(false);
-        setActiveStep(3);
-      }, 1500);
-    } catch (err) {
-      console.error('Error processing files:', err);
-      setError(err.response?.data?.detail || 'Error processing files. Please try again.');
+        setActiveStep(3); // Move to results step
+      })
+      .catch(err => {
+        console.error('Error processing file:', err);
+        setError('Error processing file: ' + (err.response?.data?.detail || err.message));
+        setLoading(false);
+      });
+    } else if (sourceType === 'direct' && content) {
+      // Create a note directly from the content
+      axios.post('/api/notes/', {
+        title: "Imported Note",
+        content: content,
+        tags: []
+      })
+      .then(() => {
+        // After creating the note, analyze to generate relationships
+        return axios.post('/api/analyze');
+      })
+      .then(() => {
+        // Get the graph data to see how many notes and relationships were created
+        return axios.get('/api/graph');
+      })
+      .then(response => {
+        setResults({
+          importedCount: response.data.nodes.length,
+          relationships: response.data.links.length
+        });
+        setLoading(false);
+        setActiveStep(3); // Move to results step
+      })
+      .catch(err => {
+        console.error('Error processing content:', err);
+        setError('Error processing content: ' + (err.response?.data?.detail || err.message));
+        setLoading(false);
+      });
+    } else {
+      setError('No content to process');
       setLoading(false);
     }
   };
@@ -163,32 +182,20 @@ const ImportView = () => {
                 <Button
                   variant="contained"
                   component="label"
-                  startIcon={<FileUploadIcon />}
+                  startIcon={<UploadIcon />}
                 >
-                  Select Files
+                  Select File
                   <input
                     type="file"
-                    multiple
                     hidden
                     onChange={handleFileChange}
                     accept=".txt,.md,.csv,.json,.pdf,.html"
                   />
                 </Button>
-                {files.length > 0 && (
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      Selected Files:
-                    </Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      {files.map((file, index) => (
-                        <Chip 
-                          key={index} 
-                          label={file.name} 
-                          variant="outlined" 
-                        />
-                      ))}
-                    </Stack>
-                  </Box>
+                {selectedFile && (
+                  <Typography variant="body2" sx={{ mt: 2 }}>
+                    Selected file: {selectedFile.name}
+                  </Typography>
                 )}
               </Box>
             ) : (
@@ -232,38 +239,37 @@ const ImportView = () => {
                 <Alert severity="success" sx={{ mb: 2 }}>
                   Successfully imported notes!
                 </Alert>
-                <Card variant="outlined" sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      Import Summary
-                    </Typography>
-                    <Typography variant="body2">
-                      • {results.importedCount || 'Unknown number of'} notes imported
-                    </Typography>
-                    <Typography variant="body2">
-                      • {results.relationships || 'Unknown number of'} relationships discovered
-                    </Typography>
-                  </CardContent>
-                </Card>
+                <Paper variant="outlined" sx={{ p: 3, mb: 2 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Import Summary
+                  </Typography>
+                  <Typography variant="body1">
+                    • {results.importedCount} notes in your knowledge graph
+                  </Typography>
+                  <Typography variant="body1">
+                    • {results.relationships} relationships discovered
+                  </Typography>
+                </Paper>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Button 
                     variant="outlined" 
                     onClick={() => {
                       setActiveStep(0);
-                      setFiles([]);
                       setContent('');
                       setResults(null);
                       setError(null);
+                      setSelectedFile(null);
                     }}
                   >
                     Import More
                   </Button>
                   <Button 
                     variant="contained" 
-                    startIcon={<HubIcon />}
-                    onClick={() => navigate('/')}
+                    startIcon={<HomeIcon />}
+                    component={Link}
+                    to="/graph"
                   >
-                    View Knowledge Graph
+                    View Graph
                   </Button>
                 </Box>
               </Box>
@@ -280,10 +286,21 @@ const ImportView = () => {
   };
 
   return (
-    <Box sx={{ width: '100%', height: '100%' }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Import Notes
-      </Typography>
+    <Container maxWidth="lg" sx={{ mt: 4 }}>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h4" component="h1">
+          Import Notes
+        </Typography>
+        <Button 
+          variant="outlined" 
+          component={Link} 
+          to="/"
+          startIcon={<HomeIcon />}
+        >
+          Home
+        </Button>
+      </Box>
+
       <Paper sx={{ p: 3, mb: 3 }}>
         <Stepper activeStep={activeStep} sx={{ mb: 3 }}>
           {steps.map((label) => (
@@ -322,45 +339,8 @@ const ImportView = () => {
           </Box>
         )}
       </Paper>
-      
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          About Importing Notes
-        </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-            <FileUploadIcon color="primary" />
-            <Box>
-              <Typography variant="subtitle1">Supported Formats</Typography>
-              <Typography variant="body2">
-                Import notes from .txt, .md, .csv, .json, .pdf, and .html files. Each file will be analyzed and split into notes based on its structure.
-              </Typography>
-            </Box>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-            <DataObjectIcon color="primary" />
-            <Box>
-              <Typography variant="subtitle1">Metadata Extraction</Typography>
-              <Typography variant="body2">
-                The system will automatically extract titles, tags, and dates from your imported content when available.
-              </Typography>
-            </Box>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-            <AutoGraphIcon color="primary" />
-            <Box>
-              <Typography variant="subtitle1">Relationship Analysis</Typography>
-              <Typography variant="body2">
-                After import, notes will be analyzed to find semantic relationships and connections between different ideas.
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-      </Paper>
-    </Box>
+    </Container>
   );
 };
 
-export default ImportView; 
+export default SimpleImportView; 

@@ -1,95 +1,41 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import Box from '@mui/material/Box';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { Box, Typography, AppBar, Toolbar, Button } from '@mui/material';
 
-// Import components
-import AppHeader from './components/AppHeader';
-import Sidebar from './components/Sidebar';
-import GraphView from './views/GraphView';
-import NoteView from './views/NoteView';
-import ImportView from './views/ImportView';
-import SearchView from './views/SearchView';
-import SettingsView from './views/SettingsView';
-
-// Create theme
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#9c27b0',
-    },
-    background: {
-      default: '#f5f5f5',
-      paper: '#ffffff',
-    },
-  },
-  typography: {
-    fontFamily: [
-      '-apple-system',
-      'BlinkMacSystemFont',
-      '"Segoe UI"',
-      'Roboto',
-      '"Helvetica Neue"',
-      'Arial',
-      'sans-serif',
-    ].join(','),
-  },
-});
+// Import simplified components
+import WelcomePage from './views/WelcomePage';
+import SimpleGraphView from './views/SimpleGraphView';
+import SimpleImportView from './views/SimpleImportView';
+import SimpleSearchView from './views/SimpleSearchView';
+import SimpleSettingsView from './views/SimpleSettingsView';
 
 function App() {
-  const [openSidebar, setOpenSidebar] = React.useState(true);
-  const [selectedNote, setSelectedNote] = React.useState(null);
-
-  const toggleSidebar = () => {
-    setOpenSidebar(!openSidebar);
-  };
-
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Router>
-        <Box sx={{ display: 'flex', height: '100vh' }}>
-          <AppHeader 
-            toggleSidebar={toggleSidebar} 
-            open={openSidebar}
-          />
-          <Sidebar 
-            open={openSidebar} 
-            selectedNote={selectedNote}
-            setSelectedNote={setSelectedNote}
-          />
-          <Box
-            component="main"
-            sx={{
-              flexGrow: 1,
-              p: 3,
-              width: { sm: `calc(100% - ${openSidebar ? 240 : 0}px)` },
-              ml: { sm: `${openSidebar ? 240 : 0}px` },
-              mt: '64px',
-              height: 'calc(100vh - 64px)',
-              overflow: 'auto',
-              transition: theme => theme.transitions.create(['width', 'margin'], {
-                easing: theme.transitions.easing.sharp,
-                duration: theme.transitions.duration.leavingScreen,
-              }),
-            }}
-          >
-            <Routes>
-              <Route path="/" element={<GraphView setSelectedNote={setSelectedNote} />} />
-              <Route path="/note/:noteId" element={<NoteView selectedNote={selectedNote} setSelectedNote={setSelectedNote} />} />
-              <Route path="/import" element={<ImportView />} />
-              <Route path="/search" element={<SearchView setSelectedNote={setSelectedNote} />} />
-              <Route path="/settings" element={<SettingsView />} />
-            </Routes>
-          </Box>
+    <Router>
+      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <AppBar position="static">
+          <Toolbar>
+            <Typography variant="h6" component={Link} to="/" sx={{ flexGrow: 1, textDecoration: 'none', color: 'white' }}>
+              NoteScape
+            </Typography>
+            <Button color="inherit" component={Link} to="/graph">Graph</Button>
+            <Button color="inherit" component={Link} to="/import">Import</Button>
+            <Button color="inherit" component={Link} to="/search">Search</Button>
+            <Button color="inherit" component={Link} to="/settings">Settings</Button>
+          </Toolbar>
+        </AppBar>
+        
+        <Box sx={{ flexGrow: 1 }}>
+          <Routes>
+            <Route path="/" element={<WelcomePage />} />
+            <Route path="/graph" element={<SimpleGraphView />} />
+            <Route path="/import" element={<SimpleImportView />} />
+            <Route path="/search" element={<SimpleSearchView />} />
+            <Route path="/settings" element={<SimpleSettingsView />} />
+          </Routes>
         </Box>
-      </Router>
-    </ThemeProvider>
+      </Box>
+    </Router>
   );
 }
 
