@@ -97,15 +97,45 @@ const SimpleGraphView = () => {
   // Process graph data to make it compatible with vis-network
   const processGraphData = (data) => {
     // Format nodes for vis-network
-    const nodes = data.nodes.map(node => ({
-      id: node.id,
-      label: node.label || node.id,
-      color: getNodeColor(node),
-      size: 25 + (node.tags?.length || 0) * 5, // Node size based on number of tags
-      title: `${node.label || node.id}\n${node.content?.substring(0, 50)}${node.content?.length > 50 ? '...' : ''}`,
-      // Store original data for reference
-      originalData: node
-    }));
+    const nodes = data.nodes.map(node => {
+      // Create a label that includes both title and a snippet of content
+      const contentSnippet = node.content ? 
+        (node.content.length > 30 ? node.content.substring(0, 30) + '...' : node.content) : '';
+      const nodeLabel = `${node.label || node.id}\n${contentSnippet}`;
+      
+      return {
+        id: node.id,
+        label: nodeLabel,
+        title: `<div style="max-width: 300px; padding: 10px;">
+                <h3 style="margin-top: 0;">${node.label || node.id}</h3>
+                <p style="white-space: pre-wrap;">${node.content || ''}</p>
+                ${node.tags && node.tags.length > 0 ? 
+                  `<p><strong>Tags:</strong> ${node.tags.join(', ')}</p>` : ''}
+                </div>`,
+        color: {
+          background: '#ffffff',
+          border: '#000000',
+          highlight: {
+            background: '#f5f5f5',
+            border: '#000000'
+          },
+          hover: {
+            background: '#f5f5f5',
+            border: '#000000'
+          }
+        },
+        font: {
+          multi: 'html',
+          size: 14,
+          color: '#000000',
+          face: 'Arial'
+        },
+        shape: 'box',
+        shadow: true,
+        // Store original data for reference
+        originalData: node
+      };
+    });
 
     // Format edges (links) for vis-network
     const edges = data.links.map((link, index) => {
@@ -113,15 +143,29 @@ const SimpleGraphView = () => {
       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
       const targetId = typeof link.target === 'object' ? link.target.id : link.target;
       
+      // Calculate edge width based on relationship strength
+      const width = 1 + (link.value || 0.5) * 5;
+      
       return {
         id: `e${index}`,
         from: sourceId,
         to: targetId,
+        width: width,
         color: {
-          color: getLinkColor(link.value || 0.5),
-          highlight: '#FF0000'
+          color: '#000000',
+          opacity: 0.6,
+          highlight: '#555555'
         },
-        width: 1 + (link.value || 0.5) * 5,
+        arrows: {
+          to: {
+            enabled: true,
+            scaleFactor: 0.5
+          }
+        },
+        smooth: {
+          type: 'continuous',
+          roundness: 0.5
+        },
         // Store original data for reference
         originalData: link
       };
@@ -132,23 +176,15 @@ const SimpleGraphView = () => {
 
   // Get color for node based on its properties
   const getNodeColor = (node) => {
-    // Color based on tags if available
-    if (node.tags && node.tags.length > 0) {
-      if (node.tags.includes('sample')) return '#2196f3'; // Blue for sample notes
-      if (node.tags.includes('important')) return '#f44336'; // Red for important notes
-      if (node.tags.includes('idea')) return '#4caf50'; // Green for ideas
-      if (node.tags.includes('question')) return '#ff9800'; // Orange for questions
-    }
-    
-    // Default color
-    return '#9c27b0'; // Purple for other notes
+    // Using black and white theme now
+    return '#ffffff'; // White background for all nodes
   };
 
   // Get color for link based on relationship strength
   const getLinkColor = (strength) => {
-    // Color gradient from light to dark based on strength
-    const opacity = 0.2 + (strength * 0.8);
-    return `rgba(33, 150, 243, ${opacity})`;
+    // Using black and white theme now
+    const opacity = 0.3 + (strength * 0.7);
+    return `rgba(0, 0, 0, ${opacity})`;
   };
 
   // Function to create a sample note
@@ -272,21 +308,47 @@ const SimpleGraphView = () => {
   // Network options for vis-network
   const options = {
     nodes: {
-      shape: 'dot',
+      shape: 'box',
       size: 30,
       font: {
         size: 14,
-        color: '#000000'
+        color: '#000000',
+        face: 'Arial',
+        multi: 'html'
       },
-      borderWidth: 2,
-      shadow: true
+      borderWidth: 1,
+      shadow: true,
+      color: {
+        background: '#ffffff',
+        border: '#000000',
+        highlight: {
+          background: '#f5f5f5',
+          border: '#000000'
+        },
+        hover: {
+          background: '#f5f5f5',
+          border: '#000000'
+        }
+      }
     },
     edges: {
-      width: 2,
-      shadow: true,
+      width: 1,
+      color: {
+        color: '#000000',
+        opacity: 0.6,
+        highlight: '#555555'
+      },
+      arrows: {
+        to: {
+          enabled: true,
+          scaleFactor: 0.5
+        }
+      },
       smooth: {
-        type: 'continuous'
-      }
+        type: 'continuous',
+        roundness: 0.5
+      },
+      shadow: true
     },
     physics: {
       stabilization: {
@@ -305,10 +367,18 @@ const SimpleGraphView = () => {
       hover: true,
       tooltipDelay: 200,
       zoomView: true,
-      dragView: true
+      dragView: true,
+      hideEdgesOnDrag: true,
+      hideEdgesOnZoom: true
     },
     height: `${graphHeight}px`,
-    width: `${graphWidth}px`
+    width: `${graphWidth}px`,
+    layout: {
+      improvedLayout: true,
+      hierarchical: {
+        enabled: false
+      }
+    }
   };
 
   // Network events

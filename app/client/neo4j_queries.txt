@@ -1,0 +1,18 @@
+# Neo4j Cypher Queries for NoteScape
+# View all notes
+MATCH (n:Note) RETURN n LIMIT 25;
+
+# View note count
+MATCH (n:Note) RETURN count(n) as noteCount;
+
+# View all relationships
+MATCH (n:Note)-[r]->(m:Note) RETURN n.title, type(r), r.strength, m.title LIMIT 25;
+
+# View relationship count
+MATCH ()-[r]->() RETURN count(r) as relationshipCount;
+
+# View notes with their tags
+MATCH (n:Note) WHERE n.tags IS NOT NULL RETURN n.id, n.title, n.tags;
+
+# View notes and their relationships
+MATCH (n:Note)-[r]->(m:Note) RETURN n.title as Source, type(r) as Relationship, r.strength as Strength, m.title as Target ORDER BY Strength DESC;
